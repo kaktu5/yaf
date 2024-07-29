@@ -1,6 +1,6 @@
 [package]
 name = "yaf"
-version = "1.0.0"
+version = "1.1.0"
 authors = ["kktsdev"]
 edition = "2021"
 description = "Yet Another Fetch"
