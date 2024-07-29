@@ -42,7 +42,7 @@ Buildin config:
 - **Escaping in `{}`**: Prefix `{`, `}`, or `\` with `\` to include them literally (`{echo \{ \}}`)
 - **Commands**: No prefix (`{uptime -p}`)
 - **Env Vars**: Prefix with `$` (`{$USER}`)
-- **Styles**: Prefix with `@` (`{@color1}`), available styles: `@color0` to `@color15`, `@bold`, `@italic`, `@underline`, `@reset`
+- **Styles**: Prefix with `@` (`{@color1}`), available styles: `@color0` to `@color255`, `@bold`, `@italic`, `@underline`, `@reset`
 
 ## Uninstalling
 ```sh
