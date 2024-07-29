@@ -48,8 +48,10 @@ enum MyError {
     UnmatchedBrace,
     #[error("Unclosed '{{' found")]
     UnclosedBrace,
-    #[error("Unknown variable: {0}")]
-    UnknownBuiltinVariable(String),
+    #[error("Unknown style: {0}")]
+    UnknownStyle(String),
+    #[error("Unknown color: {0}")]
+    UnknownColor(String),
 }
 
 fn main() {
@@ -135,11 +137,8 @@ fn parse_line(line: &str) -> Result<String, MyError> {
                 if buffer.starts_with('$') {
                     output.push_str(&get_env(&buffer[1..])?);
                 } else if buffer.starts_with('@') {
-                    if let Some(replacement) = get_style(&buffer.as_str()[1..]) {
-                        output.push_str(&replacement);
-                    } else {
-                        return Err(MyError::UnknownBuiltinVariable(buffer.clone()));
-                    }
+                    let key = &buffer[1..];
+                    output.push_str(&get_style(key)?);
                 } else {
                     output.push_str(&run_sh(&buffer)?);
                 }
@@ -162,17 +161,24 @@ fn parse_line(line: &str) -> Result<String, MyError> {
     Ok(output)
 }
 
-fn get_style(key: &str) -> Option<String> {
+fn get_style(key: &str) -> Result<String, MyError> {
     if key.starts_with("color") {
         let suffix = &key["color".len()..].trim();
-        if !suffix.is_empty() {
+        if let Ok(color) = suffix.parse::<u8>() {
             if let Some(format_string) = STYLES.get("color") {
-                return Some(format!("{}", format_string.replace("{}", suffix)));
+                return Ok(format!(
+                    "{}",
+                    format_string.replace("{}", &color.to_string())
+                ));
             }
         }
+        return Err(MyError::UnknownColor(suffix.to_string()));
     }
 
-    STYLES.get(key).map(|&value| value.to_string())
+    STYLES
+        .get(key)
+        .map(|&value| value.to_string())
+        .ok_or(MyError::UnknownStyle(key.to_string()))
 }
 
 fn run_sh(command: &str) -> Result<String, MyError> {
