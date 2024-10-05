@@ -100,7 +100,7 @@ fn main() {
             }
         }
     }
-    
+
     print!("{}", output);
     reset_term_styles();
 }
@@ -167,13 +167,13 @@ fn parse_line(line: &str) -> Result<String, YafError> {
 fn parse_var(var: &str) -> Result<String, YafError> {
     match var {
         _ if var.starts_with('$') => get_env(&var[1..]),
-        _ if var.starts_with('@') => replace_builtin_var(&var[1..]),
+        _ if var.starts_with('@') => replace_var(&var[1..]),
         _ if var.starts_with('#') => run_sh(&var[1..]),
         _ => Err(YafError::UnknownVariable(var.to_string())),
     }
 }
 
-fn replace_builtin_var(key: &str) -> Result<String, YafError> {
+fn replace_var(key: &str) -> Result<String, YafError> {
     match key {
         "username" => {
             let username = get_username();
@@ -189,16 +189,16 @@ fn replace_builtin_var(key: &str) -> Result<String, YafError> {
         }
         "kernel" => Ok(get_kernel()),
         _ if key.starts_with("color") => {
-            let suffix = &key["color".len()..].trim();
-            if let Ok(color) = suffix.parse::<u8>() {
-                if let Some(format_string) = STYLES.get("color") {
-                    return Ok(format!(
-                        "{}",
-                        format_string.replace("{}", &color.to_string())
-                    ));
-                }
-            }
-            return Err(YafError::UnknownVariable(suffix.to_string()));
+            let suffix = key["color".len()..].trim();
+            suffix
+                .parse::<u8>()
+                .ok()
+                .and_then(|color| {
+                    STYLES
+                        .get("color")
+                        .map(|format_string| format_string.replace("{}", &color.to_string()))
+                })
+                .ok_or_else(|| YafError::UnknownVariable(suffix.to_string()))
         }
         _ => STYLES
             .get(key)
