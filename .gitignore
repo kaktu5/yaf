@@ -1,2 +1,7 @@
-/target
-Cargo.lock
+*
+!src/
+!build.rs
+!Cargo.toml
+!LICENSE
+!README.md
+!screenshot.webp
