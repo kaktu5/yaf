@@ -1,5 +1,9 @@
 use log::warn;
-use std::{fs::File, io::{Read, Error, ErrorKind}, time::Duration};
+use std::{
+    fs::{read_dir, File},
+    io::{Error, ErrorKind, Read},
+    time::Duration,
+};
 use whoami::fallible::{distro, hostname, username};
 
 pub fn get_username() -> String {
@@ -44,7 +48,8 @@ pub fn get_uptime() -> String {
     let result = File::open("/proc/uptime").and_then(|mut file| {
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
-        let uptime_seconds = contents.split_whitespace()
+        let uptime_seconds = contents
+            .split_whitespace()
             .next()
             .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Malformed /proc/uptime"))?
             .parse::<f64>()
@@ -80,4 +85,14 @@ pub fn get_uptime() -> String {
     }
 
     uptime_string
+}
+
+pub fn get_pacman_pkgs() -> String {
+    let result =
+        read_dir("/var/lib/pacman/local").and_then(|entries| Ok(entries.count().to_string()));
+
+    result.unwrap_or_else(|err| {
+        warn!("Failed to get pacman package count. {:?}", err);
+        String::from("unknown")
+    })
 }

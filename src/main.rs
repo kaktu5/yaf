@@ -189,6 +189,7 @@ fn replace_var(key: &str) -> Result<String, YafError> {
         }
         "kernel" => Ok(get_kernel()),
         "uptime" => Ok(get_uptime()),
+        "pacman_pkgs" => Ok(get_pacman_pkgs()),
         _ if key.starts_with("color") => {
             let suffix = key["color".len()..].trim();
             suffix
