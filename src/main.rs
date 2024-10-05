@@ -174,19 +174,6 @@ fn parse_line(line: &str) -> Result<String, MyError> {
 }
 
 fn replace_builtin_var(key: &str) -> Result<String, MyError> {
-    if key.starts_with("color") {
-        let suffix = &key["color".len()..].trim();
-        if let Ok(color) = suffix.parse::<u8>() {
-            if let Some(format_string) = BUILTIN_VARS.get("color") {
-                return Ok(format!(
-                    "{}",
-                    format_string.replace("{}", &color.to_string())
-                ));
-            }
-        }
-        return Err(MyError::UnknownColor(suffix.to_string()));
-    }
-
     match key {
         "username" => {
             let username = get_username();
@@ -201,6 +188,18 @@ fn replace_builtin_var(key: &str) -> Result<String, MyError> {
             Ok(distro)
         }
         "kernel" => Ok(get_kernel()),
+        _ if key.starts_with("color") => {
+            let suffix = &key["color".len()..].trim();
+            if let Ok(color) = suffix.parse::<u8>() {
+                if let Some(format_string) = BUILTIN_VARS.get("color") {
+                    return Ok(format!(
+                        "{}",
+                        format_string.replace("{}", &color.to_string())
+                    ));
+                }
+            }
+            return Err(MyError::UnknownColor(suffix.to_string()));
+        }
         _ => BUILTIN_VARS
             .get(key)
             .map(|&value| value.to_string())

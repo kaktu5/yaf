@@ -1,8 +1,5 @@
 use log::warn;
-use std::{
-    fs::File,
-    io::{self, Read},
-};
+use std::{fs::File, io::Read};
 use whoami::fallible::{distro, hostname, username};
 
 pub fn get_username() -> String {
