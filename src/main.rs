@@ -1,5 +1,8 @@
 use argp::{help::HelpStyle, FromArgs};
 use dirs::config_dir;
+use env_logger::{Builder, Env};
+use fetch::*;
+use log::{error, warn};
 use phf::phf_map;
 use std::{
     env,
@@ -10,13 +13,17 @@ use std::{
 };
 use thiserror::Error;
 
+mod fetch;
+
 const BUILTIN_CONFIG: &str = include_str!("yaf.conf");
-static STYLES: phf::Map<&str, &str> = phf_map! {
+static BUILTIN_VARS: phf::Map<&str, &str> = phf_map! {
     "color" => "\x1B[38;5;{}m",
     "bold" => "\x1B[1m",
     "italic" => "\x1B[3m",
     "underline" => "\x1B[4m",
-    "reset" => "\x1B[0m"
+    "reset" => "\x1B[0m",
+    "username" => "unknown",
+    "hostname" => "unknown",
 };
 
 /// Yet Another Fetch
@@ -74,9 +81,14 @@ fn main() {
         return;
     }
 
+    Builder::from_env(Env::default().default_filter_or("warn")).init();
+
     let config: String = match open_file(Path::new(&args.config_path)) {
         Ok(file) => file,
-        Err(_) => BUILTIN_CONFIG.to_string(),
+        Err(_) => {
+            warn!("Using builtin config.");
+            BUILTIN_CONFIG.to_string()
+        }
     };
 
     let mut output: String = String::new();
@@ -85,7 +97,7 @@ fn main() {
             Ok(line) => output.push_str(&line),
             Err(err) => {
                 reset_term_styles();
-                eprintln!("Error in line {}: {}", index + 1, err);
+                error!("Error in line {}: {}", index + 1, err);
                 process::exit(1);
             }
         }
@@ -138,7 +150,7 @@ fn parse_line(line: &str) -> Result<String, MyError> {
                     output.push_str(&get_env(&buffer[1..])?);
                 } else if buffer.starts_with('@') {
                     let key = &buffer[1..];
-                    output.push_str(&get_style(key)?);
+                    output.push_str(&replace_builtin_var(key)?);
                 } else {
                     output.push_str(&run_sh(&buffer)?);
                 }
@@ -161,11 +173,11 @@ fn parse_line(line: &str) -> Result<String, MyError> {
     Ok(output)
 }
 
-fn get_style(key: &str) -> Result<String, MyError> {
+fn replace_builtin_var(key: &str) -> Result<String, MyError> {
     if key.starts_with("color") {
         let suffix = &key["color".len()..].trim();
         if let Ok(color) = suffix.parse::<u8>() {
-            if let Some(format_string) = STYLES.get("color") {
+            if let Some(format_string) = BUILTIN_VARS.get("color") {
                 return Ok(format!(
                     "{}",
                     format_string.replace("{}", &color.to_string())
@@ -175,10 +187,25 @@ fn get_style(key: &str) -> Result<String, MyError> {
         return Err(MyError::UnknownColor(suffix.to_string()));
     }
 
-    STYLES
-        .get(key)
-        .map(|&value| value.to_string())
-        .ok_or(MyError::UnknownStyle(key.to_string()))
+    match key {
+        "username" => {
+            let username = get_username();
+            Ok(username)
+        }
+        "hostname" => {
+            let hostname = get_hostname();
+            Ok(hostname)
+        }
+        "distro" => {
+            let distro = get_distro();
+            Ok(distro)
+        }
+        "kernel" => Ok(get_kernel()),
+        _ => BUILTIN_VARS
+            .get(key)
+            .map(|&value| value.to_string())
+            .ok_or(MyError::UnknownStyle(key.to_string())),
+    }
 }
 
 fn run_sh(command: &str) -> Result<String, MyError> {
