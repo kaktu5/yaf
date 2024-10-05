@@ -1,3 +1,5 @@
+mod fetch;
+
 use argp::{help::HelpStyle, FromArgs};
 use dirs::config_dir;
 use env_logger::{Builder, Env};
@@ -13,17 +15,13 @@ use std::{
 };
 use thiserror::Error;
 
-mod fetch;
-
 const BUILTIN_CONFIG: &str = include_str!("yaf.conf");
-static BUILTIN_VARS: phf::Map<&str, &str> = phf_map! {
+static STYLES: phf::Map<&str, &str> = phf_map! {
     "color" => "\x1B[38;5;{}m",
     "bold" => "\x1B[1m",
     "italic" => "\x1B[3m",
     "underline" => "\x1B[4m",
     "reset" => "\x1B[0m",
-    "username" => "unknown",
-    "hostname" => "unknown",
 };
 
 /// Yet Another Fetch
@@ -41,24 +39,24 @@ struct Args {
     version: bool,
 }
 
+fn default_config_path() -> String {
+    let mut path: PathBuf = config_dir().unwrap();
+    path.push("yaf.conf");
+    path.to_string_lossy().to_string()
+}
+
 #[derive(Error, Debug)]
-enum MyError {
+enum YafError {
     #[error("Failed to read file: {0}")]
     FileRead(#[from] io::Error),
+    #[error("Unexpected curly brace found.")]
+    UnexpectedCurlyBrace,
+    #[error("Unknown variable: {0}")]
+    UnknownVariable(String),
     #[error("Failed to execute command: {0}")]
     CommandExecution(String),
     #[error("Missing environment variable: {0}")]
-    EnvVariable(String),
-    #[error("Unexpected nested '{{' found")]
-    NestedBrace,
-    #[error("Unmatched '}}' found")]
-    UnmatchedBrace,
-    #[error("Unclosed '{{' found")]
-    UnclosedBrace,
-    #[error("Unknown style: {0}")]
-    UnknownStyle(String),
-    #[error("Unknown color: {0}")]
-    UnknownColor(String),
+    UnknownEnvVariable(String),
 }
 
 fn main() {
@@ -102,11 +100,12 @@ fn main() {
             }
         }
     }
+    
     print!("{}", output);
     reset_term_styles();
 }
 
-fn parse_line(line: &str) -> Result<String, MyError> {
+fn parse_line(line: &str) -> Result<String, YafError> {
     let mut buffer: String = String::new();
     let mut output: String = String::new();
     let mut inside_braces: bool = false;
@@ -135,25 +134,17 @@ fn parse_line(line: &str) -> Result<String, MyError> {
             }
             '{' => {
                 if inside_braces {
-                    return Err(MyError::NestedBrace);
+                    return Err(YafError::UnexpectedCurlyBrace);
                 }
                 inside_braces = true;
                 buffer.clear();
             }
             '}' => {
                 if !inside_braces {
-                    return Err(MyError::UnmatchedBrace);
+                    return Err(YafError::UnexpectedCurlyBrace);
                 }
                 inside_braces = false;
-
-                if buffer.starts_with('$') {
-                    output.push_str(&get_env(&buffer[1..])?);
-                } else if buffer.starts_with('@') {
-                    let key = &buffer[1..];
-                    output.push_str(&replace_builtin_var(key)?);
-                } else {
-                    output.push_str(&run_sh(&buffer)?);
-                }
+                output.push_str(&parse_var(&buffer)?);
             }
             _ => {
                 if inside_braces {
@@ -166,14 +157,23 @@ fn parse_line(line: &str) -> Result<String, MyError> {
     }
 
     if inside_braces {
-        return Err(MyError::UnclosedBrace);
+        return Err(YafError::UnexpectedCurlyBrace);
     }
 
     output.push('\n');
     Ok(output)
 }
 
-fn replace_builtin_var(key: &str) -> Result<String, MyError> {
+fn parse_var(var: &str) -> Result<String, YafError> {
+    match var {
+        _ if var.starts_with('$') => get_env(&var[1..]),
+        _ if var.starts_with('@') => replace_builtin_var(&var[1..]),
+        _ if var.starts_with('#') => run_sh(&var[1..]),
+        _ => Err(YafError::UnknownVariable(var.to_string())),
+    }
+}
+
+fn replace_builtin_var(key: &str) -> Result<String, YafError> {
     match key {
         "username" => {
             let username = get_username();
@@ -191,23 +191,23 @@ fn replace_builtin_var(key: &str) -> Result<String, MyError> {
         _ if key.starts_with("color") => {
             let suffix = &key["color".len()..].trim();
             if let Ok(color) = suffix.parse::<u8>() {
-                if let Some(format_string) = BUILTIN_VARS.get("color") {
+                if let Some(format_string) = STYLES.get("color") {
                     return Ok(format!(
                         "{}",
                         format_string.replace("{}", &color.to_string())
                     ));
                 }
             }
-            return Err(MyError::UnknownColor(suffix.to_string()));
+            return Err(YafError::UnknownVariable(suffix.to_string()));
         }
-        _ => BUILTIN_VARS
+        _ => STYLES
             .get(key)
             .map(|&value| value.to_string())
-            .ok_or(MyError::UnknownStyle(key.to_string())),
+            .ok_or(YafError::UnknownVariable(key.to_string())),
     }
 }
 
-fn run_sh(command: &str) -> Result<String, MyError> {
+fn run_sh(command: &str) -> Result<String, YafError> {
     let output = Command::new("/bin/sh").arg("-c").arg(command).output()?;
 
     let stdout = String::from_utf8_lossy(&output.stdout)
@@ -218,14 +218,14 @@ fn run_sh(command: &str) -> Result<String, MyError> {
         .to_string();
 
     if !stderr.is_empty() {
-        return Err(MyError::CommandExecution(stderr));
+        return Err(YafError::CommandExecution(stderr));
     }
 
     Ok(stdout)
 }
 
-fn get_env(key: &str) -> Result<String, MyError> {
-    env::var(key).map_err(|_| MyError::EnvVariable(key.to_string()))
+fn get_env(key: &str) -> Result<String, YafError> {
+    env::var(key).map_err(|_| YafError::UnknownEnvVariable(key.to_string()))
 }
 
 fn open_file(path: &Path) -> Result<String, io::Error> {
@@ -233,12 +233,6 @@ fn open_file(path: &Path) -> Result<String, io::Error> {
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
     Ok(contents)
-}
-
-fn default_config_path() -> String {
-    let mut path: PathBuf = config_dir().unwrap();
-    path.push("yaf.conf");
-    path.to_string_lossy().to_string()
 }
 
 fn reset_term_styles() {
