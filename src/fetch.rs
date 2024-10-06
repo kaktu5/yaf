@@ -55,19 +55,30 @@ pub fn get_uptime() -> Result<String, YafError> {
 
     let mut uptime_string = String::new();
     if days > 0 {
-        uptime_string.push_str(&format!("{} days", days));
+        uptime_string.push_str(&format!("{} day{}", days, if days > 1 { "s" } else { "" }));
     }
     if hours > 0 {
         if !uptime_string.is_empty() {
             uptime_string.push_str(", ");
         }
-        uptime_string.push_str(&format!("{} hours", hours));
+        uptime_string.push_str(&format!(
+            "{} hour{}",
+            hours,
+            if hours > 1 { "s" } else { "" }
+        ));
     }
     if minutes > 0 {
         if !uptime_string.is_empty() {
             uptime_string.push_str(", ");
         }
-        uptime_string.push_str(&format!("{} minutes", minutes));
+        uptime_string.push_str(&format!(
+            "{} minute{}",
+            minutes,
+            if minutes > 1 { "s" } else { "" }
+        ));
+    }
+    if uptime_string.is_empty() {
+        uptime_string.push_str("0 minutes");
     }
 
     Ok(uptime_string)
