@@ -89,6 +89,10 @@ pub fn get_pkgs() -> Result<String, YafError> {
         .map(|entries| entries.count())
         .unwrap_or(0);
 
+    let xbps_count: usize = read_dir("/var/db/xbps")
+        .map(|entries| entries.count())
+        .unwrap_or(0);
+
     let apt_count: usize = read_dir("/var/lib/dpkg/info")
         .map(|entries| {
             entries
@@ -116,6 +120,9 @@ pub fn get_pkgs() -> Result<String, YafError> {
     let mut output = Vec::new();
     if pacman_count > 0 {
         output.push(format!("{} (pacman)", pacman_count));
+    }
+    if xbps_count > 0 {
+        output.push(format!("{} (xbps)", xbps_count));
     }
     if apt_count > 0 {
         output.push(format!("{} (apt)", apt_count));
