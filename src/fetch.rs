@@ -87,12 +87,45 @@ pub fn get_uptime() -> String {
     uptime_string
 }
 
-pub fn get_pacman_pkgs() -> String {
-    let result =
-        read_dir("/var/lib/pacman/local").and_then(|entries| Ok(entries.count().to_string()));
+pub fn get_pkgs() -> String {
+    let pacman_count: usize = read_dir("/var/lib/pacman/local")
+        .map(|entries| entries.count())
+        .unwrap_or(0);
 
-    result.unwrap_or_else(|err| {
-        warn!("Failed to get pacman package count. {:?}", err);
-        String::from("unknown")
-    })
+    let apt_count: usize = read_dir("/var/lib/dpkg/info")
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.path().extension().map_or(false, |ext| ext == "list"))
+                .count()
+        })
+        .unwrap_or(0);
+
+    let flatpak_count: usize = {
+        let system_count: usize = read_dir("/var/lib/flatpak/app")
+            .map(|entries| entries.count())
+            .unwrap_or(0);
+
+        let user_count: usize = read_dir(format!(
+            "{}/.local/share/flatpak/app",
+            std::env::var("HOME").unwrap_or_default()
+        ))
+        .map(|entries| entries.count())
+        .unwrap_or(0);
+
+        system_count + user_count
+    };
+
+    let mut output = Vec::new();
+    if pacman_count > 0 {
+        output.push(format!("{} (pacman)", pacman_count));
+    }
+    if apt_count > 0 {
+        output.push(format!("{} (apt)", apt_count));
+    }
+    if flatpak_count > 0 {
+        output.push(format!("{} (flatpak)", flatpak_count));
+    }
+
+    output.join(", ")
 }
