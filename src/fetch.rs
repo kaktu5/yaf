@@ -51,7 +51,7 @@ pub fn get_uptime() -> String {
         let uptime_seconds = contents
             .split_whitespace()
             .next()
-            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Malformed /proc/uptime"))?
+            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid uptime format"))?
             .parse::<f64>()
             .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid uptime format"))?;
 
