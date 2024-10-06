@@ -2,9 +2,7 @@ mod fetch;
 
 use argp::{help::HelpStyle, FromArgs};
 use dirs::config_dir;
-use env_logger::{Builder, Env};
 use fetch::*;
-use log::{error, warn};
 use phf::phf_map;
 use std::{
     env,
@@ -57,6 +55,18 @@ enum YafError {
     CommandExecution(String),
     #[error("Missing environment variable: {0}")]
     UnknownEnvVariable(String),
+    #[error("Failed to get username: {0}")]
+    UsernameError(String),
+    #[error("Failed to get hostname: {0}")]
+    HostnameError(String),
+    #[error("Failed to get distro: {0}")]
+    DistroError(String),
+    #[error("Failed to get kernel: {0}")]
+    KernelError(String),
+    #[error("Failed to get uptime: {0}")]
+    UptimeError(String),
+    #[error("Failed to get package count.")]
+    PkgsError(),
 }
 
 fn main() {
@@ -79,14 +89,9 @@ fn main() {
         return;
     }
 
-    Builder::from_env(Env::default().default_filter_or("warn")).init();
-
     let config: String = match open_file(Path::new(&args.config_path)) {
         Ok(file) => file,
-        Err(_) => {
-            warn!("Using builtin config.");
-            BUILTIN_CONFIG.to_string()
-        }
+        Err(_) => String::from(BUILTIN_CONFIG),
     };
 
     let mut output: String = String::new();
@@ -95,7 +100,7 @@ fn main() {
             Ok(line) => output.push_str(&line),
             Err(err) => {
                 reset_term_styles();
-                error!("Error in line {}: {}", index + 1, err);
+                eprintln!("Error in line {}: {}", index + 1, err);
                 process::exit(1);
             }
         }
@@ -175,21 +180,12 @@ fn parse_var(var: &str) -> Result<String, YafError> {
 
 fn replace_var(key: &str) -> Result<String, YafError> {
     match key {
-        "username" => {
-            let username = get_username();
-            Ok(username)
-        }
-        "hostname" => {
-            let hostname = get_hostname();
-            Ok(hostname)
-        }
-        "distro" => {
-            let distro = get_distro();
-            Ok(distro)
-        }
-        "kernel" => Ok(get_kernel()),
-        "uptime" => Ok(get_uptime()),
-        "pkgs" => Ok(get_pkgs()),
+        "username" => Ok(get_username()?),
+        "hostname" => Ok(get_hostname()?),
+        "distro" => Ok(get_distro()?),
+        "kernel" => Ok(get_kernel()?),
+        "uptime" => Ok(get_uptime()?),
+        "pkgs" => Ok(get_pkgs()?),
         _ if key.starts_with("color") => {
             let suffix = key["color".len()..].trim();
             suffix

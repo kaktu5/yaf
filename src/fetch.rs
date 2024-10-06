@@ -1,33 +1,24 @@
-use log::warn;
+use crate::YafError;
 use std::{
     fs::{read_dir, File},
-    io::{Error, ErrorKind, Read},
+    io::Read,
     time::Duration,
 };
 use whoami::fallible::{distro, hostname, username};
 
-pub fn get_username() -> String {
-    username().unwrap_or_else(|err| {
-        warn!("Failed to get username. {:?}", err);
-        String::from("unknown")
-    })
+pub fn get_username() -> Result<String, YafError> {
+    username().map_err(|err| YafError::UsernameError(err.to_string()))
 }
 
-pub fn get_hostname() -> String {
-    hostname().unwrap_or_else(|err| {
-        warn!("Failed to get hostname. {:?}", err);
-        String::from("unknown")
-    })
+pub fn get_hostname() -> Result<String, YafError> {
+    hostname().map_err(|err| YafError::HostnameError(err.to_string()))
 }
 
-pub fn get_distro() -> String {
-    distro().unwrap_or_else(|err| {
-        warn!("Failed to get distro. {:?}", err);
-        String::from("unknown")
-    })
+pub fn get_distro() -> Result<String, YafError> {
+    distro().map_err(|err| YafError::DistroError(err.to_string()))
 }
 
-pub fn get_kernel() -> String {
+pub fn get_kernel() -> Result<String, YafError> {
     let result = File::open("/proc/version").and_then(|mut file| {
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
@@ -38,30 +29,25 @@ pub fn get_kernel() -> String {
         Ok(contents)
     });
 
-    result.unwrap_or_else(|err| {
-        warn!("Failed to get kernel version. {:?}", err);
-        String::from("unknown")
-    })
+    result.map_err(|err| YafError::KernelError(err.to_string()))
 }
 
-pub fn get_uptime() -> String {
-    let result = File::open("/proc/uptime").and_then(|mut file| {
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
-        let uptime_seconds = contents
-            .split_whitespace()
-            .next()
-            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid uptime format"))?
-            .parse::<f64>()
-            .map_err(|_| Error::new(ErrorKind::InvalidData, "Invalid uptime format"))?;
+pub fn get_uptime() -> Result<String, YafError> {
+    let mut file =
+        File::open("/proc/uptime").map_err(|err| YafError::UptimeError(err.to_string()))?;
 
-        Ok(Duration::from_secs_f64(uptime_seconds))
-    });
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)
+        .map_err(|err| YafError::UptimeError(err.to_string()))?;
 
-    let uptime_duration = result.unwrap_or_else(|err| {
-        warn!("Failed to get uptime. {:?}", err);
-        return Duration::from_secs(0);
-    });
+    let uptime_seconds = contents
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| YafError::UptimeError(String::from("")))?
+        .parse::<f64>()
+        .map_err(|err| YafError::UptimeError(err.to_string()))?;
+
+    let uptime_duration = Duration::from_secs_f64(uptime_seconds);
 
     let days = uptime_duration.as_secs() / 86400;
     let hours = (uptime_duration.as_secs() % 86400) / 3600;
@@ -84,10 +70,10 @@ pub fn get_uptime() -> String {
         uptime_string.push_str(&format!("{} minutes", minutes));
     }
 
-    uptime_string
+    Ok(uptime_string)
 }
 
-pub fn get_pkgs() -> String {
+pub fn get_pkgs() -> Result<String, YafError> {
     let pacman_count: usize = read_dir("/var/lib/pacman/local")
         .map(|entries| entries.count())
         .unwrap_or(0);
@@ -127,5 +113,9 @@ pub fn get_pkgs() -> String {
         output.push(format!("{} (flatpak)", flatpak_count));
     }
 
-    output.join(", ")
+    if output.is_empty() {
+        return Err(YafError::PkgsError());
+    }
+
+    Ok(output.join(", "))
 }
