@@ -2,6 +2,7 @@
 !src/
 !build.rs
 !Cargo.toml
+!rust-toolchain.toml
 !LICENSE
 !README.md
 !screenshot.webp
