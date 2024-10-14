@@ -171,7 +171,7 @@ fn parse_line(line: &str) -> Result<String, YafError> {
 
 fn parse_var(var: &str) -> Result<String, YafError> {
     match var {
-        _ if var.starts_with('$') => get_env(&var[1..]),
+        _ if var.starts_with('$') => Ok(get_env(&var[1..])),
         _ if var.starts_with('@') => replace_var(&var[1..]),
         _ if var.starts_with('#') => run_sh(&var[1..]),
         _ => Err(YafError::UnknownVariable(var.to_string())),
@@ -222,8 +222,8 @@ fn run_sh(command: &str) -> Result<String, YafError> {
     Ok(stdout)
 }
 
-fn get_env(key: &str) -> Result<String, YafError> {
-    env::var(key).map_err(|_| YafError::UnknownEnvVariable(key.to_string()))
+fn get_env(key: &str) -> String {
+    env::var(key).unwrap_or(String::from("N/A"))
 }
 
 fn open_file(path: &Path) -> Result<String, io::Error> {
