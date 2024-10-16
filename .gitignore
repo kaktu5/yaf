@@ -1,8 +1,12 @@
 *
+!examples/
+!examples/**
 !src/
-!build.rs
+!src/**
+!.gitignore
 !Cargo.toml
-!rust-toolchain.toml
 !LICENSE
 !README.md
+!build.rs
+!rust-toolchain.toml
 !screenshot.webp
