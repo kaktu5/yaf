@@ -9,16 +9,16 @@ cargo install --git https://github.com/kktsdev/yaf
 
 ## Usage
 ```
-Usage: yaf [-d] [-v] [<config_path>]
+Usage: yaf [options] [<config_path>]
 
 Yet Another Fetch
 
 Arguments:
-  config_path        Config path, defaults to ~/.config/yaf.conf, uses builtin
+  config_path        Config path, defaults to ~/.config/yaf.conf, uses built-in
                      config if the file does not exist.
 
 Options:
-  -d, --dump-config  Dumps builtin config to stdout.
+  -d, --dump-config  Dumps built-in config to stdout.
   -v, --version      Prints version info.
   -h, --help         Show this help message and exit.
 ```
