@@ -3,33 +3,38 @@ mod fetch;
 use argp::{help::HelpStyle, FromArgs};
 use dirs::config_dir;
 use fetch::*;
-use phf::phf_map;
 use std::{
     env,
     fs::File,
     io::{self, Read, Write},
-    path::{Path, PathBuf},
+    path::Path,
     process::{self, Command},
 };
 use thiserror::Error;
 
 const BUILTIN_CONFIG: &str = include_str!("yaf.conf");
-static STYLES: phf::Map<&str, &str> = phf_map! {
-    "color" => "\x1B[38;5;{}m",
-    "bold" => "\x1B[1m",
-    "italic" => "\x1B[3m",
-    "underline" => "\x1B[4m",
-    "reset" => "\x1B[0m",
-};
+const BUILTIN_VARS: &[&str] = &["username", "hostname", "distro", "kernel", "uptime", "pkgs"];
+const ERROR: &str = "ERROR";
+pub const NOT_AVAILABLE: &str = "N/A";
+
+#[derive(Error, Debug)]
+enum ConfigError {
+    #[error("Failed to read file: {0}")]
+    FileRead(#[from] io::Error),
+    #[error("Unexpected curly brace found.")]
+    UnexpectedCurlyBrace,
+    #[error("Unknown variable: {0}")]
+    UnknownVariable(String),
+}
 
 /// Yet Another Fetch
 #[derive(FromArgs)]
 struct Args {
     /// Config path, defaults to ~/.config/yaf.conf,
-    /// uses builtin config if the file does not exist.
+    /// uses built-in config if the file does not exist.
     #[argp(positional, default = "default_config_path()")]
     config_path: String,
-    /// Dumps builtin config to stdout.
+    /// Dumps built-in config to stdout.
     #[argp(switch, short = 'd')]
     dump_config: bool,
     /// Prints version info.
@@ -38,39 +43,16 @@ struct Args {
 }
 
 fn default_config_path() -> String {
-    let mut path: PathBuf = config_dir().unwrap();
-    path.push("yaf.conf");
-    path.to_string_lossy().to_string()
-}
-
-#[derive(Error, Debug)]
-enum YafError {
-    #[error("Failed to read file: {0}")]
-    FileRead(#[from] io::Error),
-    #[error("Unexpected curly brace found.")]
-    UnexpectedCurlyBrace,
-    #[error("Unknown variable: {0}")]
-    UnknownVariable(String),
-    #[error("Failed to execute command: {0}")]
-    CommandExecution(String),
-    #[error("Missing environment variable: {0}")]
-    UnknownEnvVariable(String),
-    #[error("Failed to get username: {0}")]
-    UsernameError(String),
-    #[error("Failed to get hostname: {0}")]
-    HostnameError(String),
-    #[error("Failed to get distro: {0}")]
-    DistroError(String),
-    #[error("Failed to get kernel: {0}")]
-    KernelError(String),
-    #[error("Failed to get uptime: {0}")]
-    UptimeError(String),
-    #[error("Failed to get package count.")]
-    PkgsError(),
+    config_dir()
+        .unwrap()
+        .join("yaf.conf")
+        .to_string_lossy()
+        .to_string()
 }
 
 fn main() {
     let args: Args = argp::parse_args_or_exit(&HelpStyle {
+        short_usage: true,
         wrap_width_range: 0..80,
         ..HelpStyle::default()
     });
@@ -110,7 +92,7 @@ fn main() {
     reset_term_styles();
 }
 
-fn parse_line(line: &str) -> Result<String, YafError> {
+fn parse_line(line: &str) -> Result<String, ConfigError> {
     let mut buffer: String = String::new();
     let mut output: String = String::new();
     let mut inside_braces: bool = false;
@@ -139,14 +121,14 @@ fn parse_line(line: &str) -> Result<String, YafError> {
             }
             '{' => {
                 if inside_braces {
-                    return Err(YafError::UnexpectedCurlyBrace);
+                    return Err(ConfigError::UnexpectedCurlyBrace);
                 }
                 inside_braces = true;
                 buffer.clear();
             }
             '}' => {
                 if !inside_braces {
-                    return Err(YafError::UnexpectedCurlyBrace);
+                    return Err(ConfigError::UnexpectedCurlyBrace);
                 }
                 inside_braces = false;
                 output.push_str(&parse_var(&buffer)?);
@@ -162,51 +144,50 @@ fn parse_line(line: &str) -> Result<String, YafError> {
     }
 
     if inside_braces {
-        return Err(YafError::UnexpectedCurlyBrace);
+        return Err(ConfigError::UnexpectedCurlyBrace);
     }
 
     output.push('\n');
     Ok(output)
 }
 
-fn parse_var(var: &str) -> Result<String, YafError> {
+fn parse_var(var: &str) -> Result<String, ConfigError> {
     match var {
+        _ if var.starts_with('@') => Ok(replace_var(&var[1..])?),
         _ if var.starts_with('$') => Ok(get_env(&var[1..])),
-        _ if var.starts_with('@') => replace_var(&var[1..]),
-        _ if var.starts_with('#') => run_sh(&var[1..]),
-        _ => Err(YafError::UnknownVariable(var.to_string())),
+        _ if var.starts_with('#') => Ok(run_sh(&var[1..])),
+        _ if var.starts_with('c') => Ok(var[1..]
+            .trim()
+            .parse::<u8>()
+            .map(|c| format!("\x1B[38;5;{}m", c))
+            .map_err(|_| ConfigError::UnknownVariable(String::from(var)))?),
+        _ => Err(ConfigError::UnknownVariable(String::from(var))),
     }
 }
 
-fn replace_var(key: &str) -> Result<String, YafError> {
-    match key {
-        "username" => Ok(get_username()?),
-        "hostname" => Ok(get_hostname()?),
-        "distro" => Ok(get_distro()?),
-        "kernel" => Ok(get_kernel()?),
-        "uptime" => Ok(get_uptime()?),
-        "pkgs" => Ok(get_pkgs()?),
-        _ if key.starts_with("color") => {
-            let suffix = key["color".len()..].trim();
-            suffix
-                .parse::<u8>()
-                .ok()
-                .and_then(|color| {
-                    STYLES
-                        .get("color")
-                        .map(|format_string| format_string.replace("{}", &color.to_string()))
-                })
-                .ok_or_else(|| YafError::UnknownVariable(suffix.to_string()))
-        }
-        _ => STYLES
-            .get(key)
-            .map(|&value| value.to_string())
-            .ok_or(YafError::UnknownVariable(key.to_string())),
+fn replace_var(key: &str) -> Result<String, ConfigError> {
+    if !BUILTIN_VARS.contains(&key) {
+        return Err(ConfigError::UnknownVariable(String::from(key)));
     }
+
+    Ok(match key {
+        "username" => get_username(),
+        "hostname" => get_hostname(),
+        "distro" => get_distro(),
+        "kernel" => get_kernel(),
+        "uptime" => get_uptime(),
+        "pkgs" => get_pkgs(),
+        _ => unreachable!(),
+    })
 }
 
-fn run_sh(command: &str) -> Result<String, YafError> {
-    let output = Command::new("/bin/sh").arg("-c").arg(command).output()?;
+fn run_sh(command: &str) -> String {
+    let output = Command::new("/bin/sh")
+        .arg("-c")
+        .arg(command)
+        .output()
+        .map_err(|_| String::from(ERROR))
+        .unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout)
         .trim_end()
@@ -215,15 +196,15 @@ fn run_sh(command: &str) -> Result<String, YafError> {
         .trim_end()
         .to_string();
 
-    if !stderr.is_empty() {
-        return Err(YafError::CommandExecution(stderr));
+    if stderr.is_empty() {
+        stdout
+    } else {
+        stderr
     }
-
-    Ok(stdout)
 }
 
 fn get_env(key: &str) -> String {
-    env::var(key).unwrap_or(String::from("N/A"))
+    env::var(key).unwrap_or(String::from(NOT_AVAILABLE))
 }
 
 fn open_file(path: &Path) -> Result<String, io::Error> {

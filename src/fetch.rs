@@ -1,24 +1,34 @@
-use crate::YafError;
+use crate::NOT_AVAILABLE;
 use std::{
     fs::{read_dir, File},
     io::Read,
+    path::Path,
     time::Duration,
 };
 use whoami::fallible::{distro, hostname, username};
 
-pub fn get_username() -> Result<String, YafError> {
-    username().map_err(|err| YafError::UsernameError(err.to_string()))
+pub fn get_username() -> String {
+    match username() {
+        Ok(x) => String::from(x),
+        Err(_) => String::from(NOT_AVAILABLE),
+    }
 }
 
-pub fn get_hostname() -> Result<String, YafError> {
-    hostname().map_err(|err| YafError::HostnameError(err.to_string()))
+pub fn get_hostname() -> String {
+    match hostname() {
+        Ok(x) => String::from(x),
+        Err(_) => String::from(NOT_AVAILABLE),
+    }
 }
 
-pub fn get_distro() -> Result<String, YafError> {
-    distro().map_err(|err| YafError::DistroError(err.to_string()))
+pub fn get_distro() -> String {
+    match distro() {
+        Ok(x) => String::from(x),
+        Err(_) => String::from(NOT_AVAILABLE),
+    }
 }
 
-pub fn get_kernel() -> Result<String, YafError> {
+pub fn get_kernel() -> String {
     let result = File::open("/proc/version").and_then(|mut file| {
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
@@ -29,23 +39,31 @@ pub fn get_kernel() -> Result<String, YafError> {
         Ok(contents)
     });
 
-    result.map_err(|err| YafError::KernelError(err.to_string()))
+    match result {
+        Ok(x) => x,
+        Err(_) => String::from(NOT_AVAILABLE),
+    }
 }
 
-pub fn get_uptime() -> Result<String, YafError> {
-    let mut file =
-        File::open("/proc/uptime").map_err(|err| YafError::UptimeError(err.to_string()))?;
+pub fn get_uptime() -> String {
+    let mut file = match File::open(Path::new("/proc/uptime")) {
+        Ok(f) => f,
+        Err(_) => return String::from(NOT_AVAILABLE),
+    };
 
     let mut contents = String::new();
-    file.read_to_string(&mut contents)
-        .map_err(|err| YafError::UptimeError(err.to_string()))?;
+    if file.read_to_string(&mut contents).is_err() {
+        return String::from(NOT_AVAILABLE);
+    }
 
-    let uptime_seconds = contents
-        .split_whitespace()
-        .next()
-        .ok_or_else(|| YafError::UptimeError(String::from("")))?
-        .parse::<f64>()
-        .map_err(|err| YafError::UptimeError(err.to_string()))?;
+    let uptime_seconds = contents.split_whitespace().next();
+    let uptime_seconds = match uptime_seconds {
+        Some(s) => match s.parse::<f64>() {
+            Ok(seconds) => seconds,
+            Err(_) => return String::from(NOT_AVAILABLE),
+        },
+        None => return String::from(NOT_AVAILABLE),
+    };
 
     let uptime_duration = Duration::from_secs_f64(uptime_seconds);
 
@@ -81,10 +99,10 @@ pub fn get_uptime() -> Result<String, YafError> {
         uptime_string.push_str("0 minutes");
     }
 
-    Ok(uptime_string)
+    uptime_string
 }
 
-pub fn get_pkgs() -> Result<String, YafError> {
+pub fn get_pkgs() -> String {
     let pacman_count: usize = read_dir("/var/lib/pacman/local")
         .map(|entries| entries.count())
         .unwrap_or(0);
@@ -132,8 +150,8 @@ pub fn get_pkgs() -> Result<String, YafError> {
     }
 
     if output.is_empty() {
-        return Err(YafError::PkgsError());
+        return String::from(NOT_AVAILABLE);
     }
 
-    Ok(output.join(", "))
+    output.join(", ")
 }
