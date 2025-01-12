@@ -1,30 +1,26 @@
-use crate::NOT_AVAILABLE;
+use crate::{ERROR_STR, NOT_AVAILABLE_STR};
 use std::{
+    env,
     fs::{read_dir, File},
     io::Read,
     path::Path,
+    process::Command,
+    thread,
     time::Duration,
 };
 use whoami::fallible::{distro, hostname, username};
 
-pub fn get_username() -> String {
-    match username() {
-        Ok(x) => String::from(x),
-        Err(_) => String::from(NOT_AVAILABLE),
+pub fn get_distro() -> String {
+    match distro() {
+        Ok(x) => x,
+        Err(_) => String::from(NOT_AVAILABLE_STR),
     }
 }
 
 pub fn get_hostname() -> String {
     match hostname() {
-        Ok(x) => String::from(x),
-        Err(_) => String::from(NOT_AVAILABLE),
-    }
-}
-
-pub fn get_distro() -> String {
-    match distro() {
-        Ok(x) => String::from(x),
-        Err(_) => String::from(NOT_AVAILABLE),
+        Ok(x) => x,
+        Err(_) => String::from(NOT_AVAILABLE_STR),
     }
 }
 
@@ -41,28 +37,130 @@ pub fn get_kernel() -> String {
 
     match result {
         Ok(x) => x,
-        Err(_) => String::from(NOT_AVAILABLE),
+        Err(_) => String::from(NOT_AVAILABLE_STR),
+    }
+}
+
+pub fn get_pkgs() -> String {
+    let home = match env::var("HOME") {
+        Ok(p) => p,
+        Err(_) => return String::from(ERROR_STR),
+    };
+
+    let pacman_count = read_dir("/var/lib/pacman/local")
+        .map(|entries| entries.count())
+        .unwrap_or(0);
+
+    let xbps_count = read_dir("/var/db/xbps")
+        .map(|entries| entries.count())
+        .unwrap_or(0);
+
+    let apt_count = read_dir("/var/lib/dpkg/info")
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "list"))
+                .count()
+        })
+        .unwrap_or(0);
+
+    let flatpak_count = {
+        let system_count = read_dir("/var/lib/flatpak/app")
+            .map(|entries| entries.count())
+            .unwrap_or(0);
+
+        let user_count = read_dir(String::from(&home) + "/.local/share/flatpak/app")
+            .map(|entries| entries.count())
+            .unwrap_or(0);
+
+        system_count + user_count
+    };
+
+    let nix_count = {
+        let system_handle = thread::spawn(move || {
+            Command::new("nix-store")
+                .args(["--query", "--requisites", "/run/current-system"])
+                .output()
+                .ok()
+                .and_then(|output| {
+                    String::from_utf8_lossy(&output.stdout)
+                        .lines()
+                        .count()
+                        .into()
+                })
+                .unwrap_or(0)
+        });
+
+        let user_handle = thread::spawn(move || {
+            Command::new("nix-store")
+                .args([
+                    "--query",
+                    "--requisites",
+                    &(String::from(&home) + "/.nix-profile"),
+                ])
+                .output()
+                .ok()
+                .and_then(|output| {
+                    String::from_utf8_lossy(&output.stdout)
+                        .lines()
+                        .count()
+                        .into()
+                })
+                .unwrap_or(0)
+        });
+
+        system_handle.join().unwrap() + user_handle.join().unwrap()
+    };
+
+    let mut output = Vec::new();
+    if pacman_count != 0 {
+        output.push(format!("{} (pacman)", pacman_count));
+    }
+    if xbps_count != 0 {
+        output.push(format!("{} (xbps)", xbps_count));
+    }
+    if apt_count != 0 {
+        output.push(format!("{} (apt)", apt_count));
+    }
+    if flatpak_count != 0 {
+        output.push(format!("{} (flatpak)", flatpak_count));
+    }
+    if nix_count != 0 {
+        output.push(format!("{} (nix)", nix_count));
+    }
+
+    if output.is_empty() {
+        return String::from(NOT_AVAILABLE_STR);
+    }
+
+    output.join(", ")
+}
+
+pub fn get_shell() -> String {
+    match env::var("SHELL") {
+        Ok(x) => String::from(x.rsplit('/').next().unwrap()),
+        Err(_) => String::from(NOT_AVAILABLE_STR),
     }
 }
 
 pub fn get_uptime() -> String {
     let mut file = match File::open(Path::new("/proc/uptime")) {
         Ok(f) => f,
-        Err(_) => return String::from(NOT_AVAILABLE),
+        Err(_) => return String::from(NOT_AVAILABLE_STR),
     };
 
     let mut contents = String::new();
     if file.read_to_string(&mut contents).is_err() {
-        return String::from(NOT_AVAILABLE);
+        return String::from(NOT_AVAILABLE_STR);
     }
 
     let uptime_seconds = contents.split_whitespace().next();
     let uptime_seconds = match uptime_seconds {
         Some(s) => match s.parse::<f64>() {
             Ok(seconds) => seconds,
-            Err(_) => return String::from(NOT_AVAILABLE),
+            Err(_) => return String::from(NOT_AVAILABLE_STR),
         },
-        None => return String::from(NOT_AVAILABLE),
+        None => return String::from(NOT_AVAILABLE_STR),
     };
 
     let uptime_duration = Duration::from_secs_f64(uptime_seconds);
@@ -102,56 +200,9 @@ pub fn get_uptime() -> String {
     uptime_string
 }
 
-pub fn get_pkgs() -> String {
-    let pacman_count: usize = read_dir("/var/lib/pacman/local")
-        .map(|entries| entries.count())
-        .unwrap_or(0);
-
-    let xbps_count: usize = read_dir("/var/db/xbps")
-        .map(|entries| entries.count())
-        .unwrap_or(0);
-
-    let apt_count: usize = read_dir("/var/lib/dpkg/info")
-        .map(|entries| {
-            entries
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| entry.path().extension().map_or(false, |ext| ext == "list"))
-                .count()
-        })
-        .unwrap_or(0);
-
-    let flatpak_count: usize = {
-        let system_count: usize = read_dir("/var/lib/flatpak/app")
-            .map(|entries| entries.count())
-            .unwrap_or(0);
-
-        let user_count: usize = read_dir(format!(
-            "{}/.local/share/flatpak/app",
-            std::env::var("HOME").unwrap_or_default()
-        ))
-        .map(|entries| entries.count())
-        .unwrap_or(0);
-
-        system_count + user_count
-    };
-
-    let mut output = Vec::new();
-    if pacman_count > 0 {
-        output.push(format!("{} (pacman)", pacman_count));
+pub fn get_username() -> String {
+    match username() {
+        Ok(x) => x,
+        Err(_) => String::from(NOT_AVAILABLE_STR),
     }
-    if xbps_count > 0 {
-        output.push(format!("{} (xbps)", xbps_count));
-    }
-    if apt_count > 0 {
-        output.push(format!("{} (apt)", apt_count));
-    }
-    if flatpak_count > 0 {
-        output.push(format!("{} (flatpak)", flatpak_count));
-    }
-
-    if output.is_empty() {
-        return String::from(NOT_AVAILABLE);
-    }
-
-    output.join(", ")
 }

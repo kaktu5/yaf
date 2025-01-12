@@ -1,10 +1,10 @@
 [package]
 name = "yaf"
-version = "2.2.0"
-authors = [ "kktsdev" ]
+version = "0.1.0"
+authors = [ "kaktu5" ]
 edition = "2021"
 description = "Yet Another Fetch"
-repository = "https://github.com/kktsdev/yaf"
+repository = "https://github.com/kaktu5/yaf"
 license = "MIT"
 
 [profile.dev]
@@ -24,7 +24,7 @@ opt-level = 3
 strip = "symbols"
 
 [dependencies]
-argp = "0.3.0"
+argp = "0.4.0"
 dirs = "5.0.1"
-thiserror = "1.0.64"
+thiserror = "2.0.11"
 whoami = "1.5.2"

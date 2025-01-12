@@ -13,9 +13,11 @@ use std::{
 use thiserror::Error;
 
 const BUILTIN_CONFIG: &str = include_str!("yaf.conf");
-const BUILTIN_VARS: &[&str] = &["username", "hostname", "distro", "kernel", "uptime", "pkgs"];
-const ERROR: &str = "ERROR";
-pub const NOT_AVAILABLE: &str = "N/A";
+const BUILTIN_VARS: &[&str] = &[
+    "distro", "hostname", "kernel", "pkgs", "shell", "uptime", "username",
+];
+const ERROR_STR: &str = "ERROR";
+pub const NOT_AVAILABLE_STR: &str = "N/A";
 
 #[derive(Error, Debug)]
 enum ConfigError {
@@ -34,9 +36,9 @@ struct Args {
     /// uses built-in config if the file does not exist.
     #[argp(positional, default = "default_config_path()")]
     config_path: String,
-    /// Dumps built-in config to stdout.
-    #[argp(switch, short = 'd')]
-    dump_config: bool,
+    /// Prints built-in config to stdout.
+    #[argp(switch, short = 's')]
+    show_config: bool,
     /// Prints version info.
     #[argp(switch, short = 'v')]
     version: bool,
@@ -53,18 +55,18 @@ fn default_config_path() -> String {
 fn main() {
     let args: Args = argp::parse_args_or_exit(&HelpStyle {
         short_usage: true,
-        wrap_width_range: 0..80,
+        wrap_width_range: 0..70,
         ..HelpStyle::default()
     });
 
-    if args.dump_config {
+    if args.show_config {
         print!("{}", BUILTIN_CONFIG);
         return;
     }
 
     if args.version {
-        print!(
-            "yaf {} ({})\n",
+        println!(
+            "yaf {} ({})",
             env!("CARGO_PKG_VERSION"),
             env!("GIT_COMMIT_HASH")
         );
@@ -78,7 +80,7 @@ fn main() {
 
     let mut output: String = String::new();
     for (index, line) in config.lines().enumerate() {
-        match parse_line(&line) {
+        match parse_line(line) {
             Ok(line) => output.push_str(&line),
             Err(err) => {
                 reset_term_styles();
@@ -171,22 +173,22 @@ fn replace_var(key: &str) -> Result<String, ConfigError> {
     }
 
     Ok(match key {
-        "username" => get_username(),
-        "hostname" => get_hostname(),
         "distro" => get_distro(),
+        "hostname" => get_hostname(),
         "kernel" => get_kernel(),
-        "uptime" => get_uptime(),
         "pkgs" => get_pkgs(),
+        "shell" => get_shell(),
+        "uptime" => get_uptime(),
+        "username" => get_username(),
         _ => unreachable!(),
     })
 }
 
 fn run_sh(command: &str) -> String {
     let output = Command::new("/bin/sh")
-        .arg("-c")
-        .arg(command)
+        .args(["-c", command])
         .output()
-        .map_err(|_| String::from(ERROR))
+        .map_err(|_| String::from(ERROR_STR))
         .unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout)
@@ -204,7 +206,7 @@ fn run_sh(command: &str) -> String {
 }
 
 fn get_env(key: &str) -> String {
-    env::var(key).unwrap_or(String::from(NOT_AVAILABLE))
+    env::var(key).unwrap_or(String::from(NOT_AVAILABLE_STR))
 }
 
 fn open_file(path: &Path) -> Result<String, io::Error> {
