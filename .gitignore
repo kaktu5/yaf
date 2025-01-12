@@ -1,12 +1,12 @@
 *
-!examples/
-!examples/**
 !src/
 !src/**
 !.gitignore
+!Cargo.lock
 !Cargo.toml
 !LICENSE
 !README.md
 !build.rs
-!rust-toolchain.toml
+!flake.lock
+!flake.nix
 !screenshot.webp
